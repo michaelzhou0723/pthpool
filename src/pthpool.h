@@ -9,7 +9,7 @@ extern "C" {
 
 typedef struct _threadpool *pthpool_t;
 
-int pthpool_create(pthpool_t *pool, size_t count);
+pthpool_t pthpool_create(size_t count);
 
 int pthpool_apply(pthpool_t pool, void (*func)(void *), void *arg);
 
