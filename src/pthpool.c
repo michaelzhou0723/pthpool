@@ -54,23 +54,28 @@ static void *jobqueue_fetch(void *queue)
         while (jobqueue->tail == NULL) {
             pthread_cond_wait(&jobqueue->cond_nonempty, &jobqueue->mutex_rwlock);
         }
-        threadtask_t *tmp, task;
+        threadtask_t *tmp, *task;
         if (jobqueue->head == jobqueue->tail) {
-            task = *jobqueue->tail;
-            free(jobqueue->tail);
+            task = jobqueue->tail;
             jobqueue->head = jobqueue->tail = NULL;
         }
         else {
             for (tmp = jobqueue->head; tmp->next != jobqueue->tail; tmp = tmp->next) {
                 ;
             }
-            task = *tmp->next;
-            free(tmp->next);
+            task = tmp->next;
             jobqueue->tail = tmp;
             tmp->next = NULL;
         }
         pthread_mutex_unlock(&jobqueue->mutex_rwlock);
-        task.func(task.arg);
+        if (task->func) {
+            task->func(task->arg);
+            free(task);
+        }
+        else {
+            free(task);
+            pthread_exit(NULL);
+        }
     }
     pthread_exit(NULL);
 }
@@ -133,7 +138,7 @@ int pthpool_join(struct _threadpool *pool)
     size_t num_threads = pool->count;
     int i;
     for (i = 0; i < num_threads; i++) {
-        pthpool_apply(pool, pthread_exit, NULL);
+        pthpool_apply(pool, NULL, NULL);
     }
     for (i = 0; i < num_threads; i++) {
         pthread_join(pool->workers[i], NULL);
