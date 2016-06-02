@@ -1,9 +1,16 @@
 #include <stdlib.h>
+#include <time.h>
 #include <pthread.h>
 #include "pthpool.h"
 
+#ifdef CLOCK_MONOTONIC
+#define PTHPOOL_CLOCKID CLOCK_MONOTONIC
+#else
+#define PTHPOOL_CLOCKID CLOCK_REALTIME
+#endif
+
 struct _future {
-    int ready;
+    int flag;
     void *result;
     pthread_mutex_t mutex_ready;
     pthread_cond_t cond_ready;
@@ -85,7 +92,7 @@ static void *jobqueue_fetch(void *queue)
             ret_value = task->func(task->arg);
             if (task->future) {
                 pthread_mutex_lock(&task->future->mutex_ready);
-                task->future->ready = 1;
+                task->future->flag |= _FUTURE_READY;
                 task->future->result = ret_value;
                 pthread_mutex_unlock(&task->future->mutex_ready);
                 pthread_cond_signal(&task->future->cond_ready);
@@ -104,10 +111,13 @@ struct _future *pthpool_future_create(void)
     struct _future *future = (struct _future *)malloc(sizeof(struct _future));
     
     if (future) {
-        future->ready = 0;
+        future->flag = 0;
         future->result = NULL;
         pthread_mutex_init(&future->mutex_ready, NULL);
-        pthread_cond_init(&future->cond_ready, NULL);
+        pthread_condattr_t attr;
+        pthread_condattr_init(&attr);
+        pthread_condattr_setclock(&attr, PTHPOOL_CLOCKID);
+        pthread_cond_init(&future->cond_ready, &attr);
     }
     
     return future;
@@ -124,11 +134,26 @@ int pthpool_future_destroy(struct _future *future)
     return 0;
 }
 
-void *pthpool_future_wait(struct _future *future)
+void *pthpool_future_wait(struct _future *future, unsigned int seconds)
 {
+    int status;
+    
     pthread_mutex_lock(&future->mutex_ready);
-    while (future->ready == 0) {
-        pthread_cond_wait(&future->cond_ready, &future->mutex_ready);
+    future->flag &= _FUTURE_READY;      // turn off the timeout bit
+    while ((future->flag & _FUTURE_READY) == 0) {
+        if (seconds) {
+            struct timespec expire_time;
+            clock_gettime(PTHPOOL_CLOCKID, &expire_time);
+            expire_time.tv_sec += seconds;
+            status = pthread_cond_timedwait(&future->cond_ready, &future->mutex_ready, &expire_time);
+            if (status == ETIMEDOUT) {
+                future->flag |= _FUTURE_TIMEOUT;
+                return NULL;
+            }
+        }
+        else {
+            pthread_cond_wait(&future->cond_ready, &future->mutex_ready);
+        }
     }
     pthread_mutex_unlock(&future->mutex_ready);
     
