@@ -12,7 +12,12 @@ enum _future_flags {
     _FUTURE_TIMEOUT = 02,
 };
 
-typedef struct _future *pthpool_future_t;
+typedef struct _future {
+    int flag;
+    void *result;
+    pthread_mutex_t mutex_flag;
+    pthread_cond_t cond_flag;
+} *pthpool_future_t;
 
 typedef struct _threadpool *pthpool_t;
 

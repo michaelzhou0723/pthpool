@@ -3,19 +3,13 @@
 #include <errno.h>
 #include <pthread.h>
 #include "pthpool.h"
+#include <stdio.h>
 
 #ifdef CLOCK_MONOTONIC
 #define PTHPOOL_CLOCKID CLOCK_MONOTONIC
 #else
 #define PTHPOOL_CLOCKID CLOCK_REALTIME
 #endif
-
-struct _future {
-    int flag;
-    void *result;
-    pthread_mutex_t mutex_ready;
-    pthread_cond_t cond_ready;
-};
 
 typedef struct _threadtask {
     void *(*func)(void *);
@@ -39,7 +33,7 @@ struct _threadpool {
 
 static jobqueue_t *jobqueue_create(void)
 {
-    jobqueue_t *jobqueue = malloc(sizeof(jobqueue_t));
+    jobqueue_t *jobqueue = (jobqueue_t *)malloc(sizeof(jobqueue_t));
     
     if (jobqueue) {
         jobqueue->head = jobqueue->tail = NULL;
@@ -92,11 +86,11 @@ static void *jobqueue_fetch(void *queue)
         if (task->func) {
             ret_value = task->func(task->arg);
             if (task->future) {
-                pthread_mutex_lock(&task->future->mutex_ready);
+                pthread_mutex_lock(&task->future->mutex_flag);
                 task->future->flag |= _FUTURE_READY;
                 task->future->result = ret_value;
-                pthread_mutex_unlock(&task->future->mutex_ready);
-                pthread_cond_signal(&task->future->cond_ready);
+                pthread_mutex_unlock(&task->future->mutex_flag);
+                pthread_cond_signal(&task->future->cond_flag);
             }
             free(task);
         }
@@ -114,11 +108,12 @@ struct _future *pthpool_future_create(void)
     if (future) {
         future->flag = 0;
         future->result = NULL;
-        pthread_mutex_init(&future->mutex_ready, NULL);
+        pthread_mutex_init(&future->mutex_flag, NULL);
         pthread_condattr_t attr;
         pthread_condattr_init(&attr);
         pthread_condattr_setclock(&attr, PTHPOOL_CLOCKID);
-        pthread_cond_init(&future->cond_ready, &attr);
+        pthread_cond_init(&future->cond_flag, &attr);
+        pthread_condattr_destroy(&attr);
     }
     
     return future;
@@ -127,8 +122,8 @@ struct _future *pthpool_future_create(void)
 int pthpool_future_destroy(struct _future *future)
 {
     if (future) {
-        pthread_mutex_destroy(&future->mutex_ready);
-        pthread_cond_destroy(&future->cond_ready);
+        pthread_mutex_destroy(&future->mutex_flag);
+        pthread_cond_destroy(&future->cond_flag);
     }
     free(future);
     
@@ -139,24 +134,25 @@ void *pthpool_future_wait(struct _future *future, unsigned int seconds)
 {
     int status;
     
-    pthread_mutex_lock(&future->mutex_ready);
+    pthread_mutex_lock(&future->mutex_flag);
     future->flag &= _FUTURE_READY;      // turn off the timeout bit
     while ((future->flag & _FUTURE_READY) == 0) {
         if (seconds) {
             struct timespec expire_time;
             clock_gettime(PTHPOOL_CLOCKID, &expire_time);
             expire_time.tv_sec += seconds;
-            status = pthread_cond_timedwait(&future->cond_ready, &future->mutex_ready, &expire_time);
+            status = pthread_cond_timedwait(&future->cond_flag, &future->mutex_flag, &expire_time);
             if (status == ETIMEDOUT) {
                 future->flag |= _FUTURE_TIMEOUT;
+                pthread_mutex_unlock(&future->mutex_flag);
                 return NULL;
             }
         }
         else {
-            pthread_cond_wait(&future->cond_ready, &future->mutex_ready);
+            pthread_cond_wait(&future->cond_flag, &future->mutex_flag);
         }
     }
-    pthread_mutex_unlock(&future->mutex_ready);
+    pthread_mutex_unlock(&future->mutex_flag);
     
     return future->result;
 }
