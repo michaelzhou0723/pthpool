@@ -217,8 +217,8 @@ static void *jobqueue_fetch(void *queue)
             else {
                 task->future->flag |= _FUTURE_READY;
                 task->future->result = ret_value;
-                pthread_mutex_unlock(&task->future->mutex_flag);
-                pthread_cond_broadcast(&task->future->cond_ready);                    
+                pthread_cond_broadcast(&task->future->cond_ready);
+                pthread_mutex_unlock(&task->future->mutex_flag);                 
             }
             free(task);
         }
