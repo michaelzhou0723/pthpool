@@ -1,5 +1,5 @@
-#ifndef _THREADPOOL_H
-#define _THREADPOOL_H
+#ifndef _PTHPOOL_H
+#define _PTHPOOL_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,9 +17,13 @@ int pthpool_join(pthpool_t pool);
 
 int pthpool_terminate(pthpool_t pool);
 
+void *pthpool_future_get(pthpool_future_t future, unsigned int seconds);
+
 int pthpool_future_destroy(pthpool_future_t future);
 
-void *pthpool_future_get(struct _future *future, unsigned int seconds);
+int pthpool_future_ready(pthpool_future_t future);
+
+int pthpool_future_timeout(pthpool_future_t future);
 
 #ifdef __cplusplus
 }

@@ -13,7 +13,7 @@
 enum _future_flags {
     _FUTURE_READY = 01,
     _FUTURE_TIMEOUT = 02,
-    _FUTURE_CANCELLED = 04,
+    _FUTURE_CANCELED = 04,
     _FUTURE_DESTROYED = 10,
 };
 
@@ -44,7 +44,7 @@ struct _threadpool {
     jobqueue_t *jobqueue;
 };
 
-struct _future *pthpool_future_create(void)
+static struct _future *pthpool_future_create(void)
 {
     struct _future *future = (struct _future *)malloc(sizeof(struct _future));
     
@@ -66,7 +66,7 @@ int pthpool_future_destroy(struct _future *future)
 {
     if (future) {
         pthread_mutex_lock(&future->mutex_flag);
-        if (future->flag & _FUTURE_READY || future->flag & _FUTURE_CANCELLED) {
+        if (future->flag & _FUTURE_READY || future->flag & _FUTURE_CANCELED) {
             pthread_mutex_unlock(&future->mutex_flag);
             pthread_mutex_destroy(&future->mutex_flag);
             pthread_cond_destroy(&future->cond_ready);
@@ -86,7 +86,7 @@ void *pthpool_future_get(struct _future *future, unsigned int seconds)
     int status;
     
     pthread_mutex_lock(&future->mutex_flag);
-    future->flag &= _FUTURE_READY;      // turn off the timeout bit
+    future->flag &= _FUTURE_READY;      // turn off the timeout bit set previously
     while ((future->flag & _FUTURE_READY) == 0) {
         if (seconds) {
             struct timespec expire_time;
@@ -106,6 +106,17 @@ void *pthpool_future_get(struct _future *future, unsigned int seconds)
     pthread_mutex_unlock(&future->mutex_flag);
     
     return future->result;
+}
+
+int pthpool_future_ready(struct _future *future)
+{
+    int status;
+    
+    pthread_mutex_lock(&future->mutex_flag);
+    status = future->flag & _FUTURE_READY;
+    pthread_mutex_unlock(&future->mutex_flag);
+    
+    return status;
 }
 
 int pthpool_future_timeout(struct _future *future)
@@ -138,14 +149,15 @@ static void jobqueue_destroy(jobqueue_t *jobqueue)
     
     while (tmp) {
         jobqueue->head = jobqueue->head->next;
+        pthread_mutex_lock(&tmp->future->mutex_flag);
         if (tmp->future->flag & _FUTURE_DESTROYED) {
+            pthread_mutex_unlock(&tmp->future->mutex_flag);
             pthread_mutex_destroy(&tmp->future->mutex_flag);
             pthread_cond_destroy(&tmp->future->cond_ready);
             free(tmp->future);            
         }
         else {
-            pthread_mutex_lock(&tmp->future->mutex_flag);
-            tmp->future->flag |= _FUTURE_CANCELLED;
+            tmp->future->flag |= _FUTURE_CANCELED;
             pthread_mutex_unlock(&tmp->future->mutex_flag);
         }
         free(tmp);
@@ -156,7 +168,7 @@ static void jobqueue_destroy(jobqueue_t *jobqueue)
     free(jobqueue);
 }
 
-void _jobqueue_fetch_cleanup(void *arg) {
+static void _jobqueue_fetch_cleanup(void *arg) {
     pthread_mutex_t *mutex = (pthread_mutex_t *)arg;
     pthread_mutex_unlock(mutex);
 }
@@ -167,7 +179,7 @@ static void *jobqueue_fetch(void *queue)
     threadtask_t *tmp, *task;
     void *ret_value;
     int old_state;
-    
+
     pthread_cleanup_push(_jobqueue_fetch_cleanup, (void *)&jobqueue->mutex_rwlock);
     
     while (1) {
@@ -229,6 +241,12 @@ struct _threadpool *pthpool_create(size_t count)
     struct _threadpool *pool = (struct _threadpool *)malloc(sizeof(struct _threadpool));
     
     if (!jobqueue || !pool) {
+        if (jobqueue) {
+            jobqueue_destroy(jobqueue);
+        }
+        if (pool) {
+            free(pool);
+        }
         return NULL;
     }
     pool->count = count;
@@ -277,6 +295,14 @@ struct _future *pthpool_apply(struct _threadpool *pool, void *(*func)(void *), v
         }
         pthread_mutex_unlock(&jobqueue->mutex_rwlock);
     }
+    else if (new_head) {
+        free(new_head);
+        return NULL;
+    }
+    else if (future) {
+        pthpool_future_destroy(future);
+        return NULL;
+    }
     return future;
 }
 
@@ -300,8 +326,8 @@ int pthpool_join(struct _threadpool *pool)
 
 int pthpool_terminate(struct _threadpool *pool)
 {
-    size_t num_threads = pool->count;
     int i;
+    size_t num_threads = pool->count;
     
     for (i = 0; i < num_threads; i++) {
         pthread_cancel(pool->workers[i]);
