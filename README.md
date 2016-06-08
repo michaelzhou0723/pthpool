@@ -21,6 +21,7 @@ Below is a typical workflow when using Pthpool. Refer to the API section for mor
 ## API
 
 **pthpool_t pthpool_create(size_t count)**  
+
 Create a thread pool containing specified number of threads. If successful, the thread pool is returned. Otherwise, `pthpool_create()` returns `NULL`.
 </br></br>
 **pthpool_future_t pthpool_apply(pthpool_t pool, void *(*func)(void *), void *arg)**  
