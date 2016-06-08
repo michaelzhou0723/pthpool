@@ -19,9 +19,11 @@ int pthpool_terminate(pthpool_t pool);
 
 void *pthpool_future_get(pthpool_future_t future, unsigned int seconds);
 
+int pthpool_future_cancel(pthpool_future_t future);
+
 int pthpool_future_destroy(pthpool_future_t future);
 
-int pthpool_future_ready(pthpool_future_t future);
+int pthpool_future_finished(pthpool_future_t future);
 
 int pthpool_future_timeout(pthpool_future_t future);
 

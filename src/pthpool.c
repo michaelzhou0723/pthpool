@@ -11,10 +11,11 @@
 #endif
 
 enum _future_flags {
-    _FUTURE_READY = 01,
-    _FUTURE_TIMEOUT = 02,
-    _FUTURE_CANCELED = 04,
-    _FUTURE_DESTROYED = 10,
+    _FUTURE_RUNNING = 01,
+    _FUTURE_FINISHED = 02,
+    _FUTURE_TIMEOUT = 04,
+    _FUTURE_CANCELLED = 010,
+    _FUTURE_DESTROYED = 020,
 };
 
 typedef struct _threadtask {
@@ -35,7 +36,7 @@ struct _future {
     int flag;
     void *result;
     pthread_mutex_t mutex_flag;
-    pthread_cond_t cond_ready;
+    pthread_cond_t cond_finished;
 };
 
 struct _threadpool {
@@ -55,7 +56,7 @@ static struct _future *pthpool_future_create(void)
         pthread_condattr_t attr;
         pthread_condattr_init(&attr);
         pthread_condattr_setclock(&attr, _PTHPOOL_CLOCKID);
-        pthread_cond_init(&future->cond_ready, &attr);
+        pthread_cond_init(&future->cond_finished, &attr);
         pthread_condattr_destroy(&attr);
     }
     
@@ -66,10 +67,10 @@ int pthpool_future_destroy(struct _future *future)
 {
     if (future) {
         pthread_mutex_lock(&future->mutex_flag);
-        if (future->flag & _FUTURE_READY || future->flag & _FUTURE_CANCELED) {
+        if (future->flag & _FUTURE_FINISHED || future->flag & _FUTURE_CANCELLED) {
             pthread_mutex_unlock(&future->mutex_flag);
             pthread_mutex_destroy(&future->mutex_flag);
-            pthread_cond_destroy(&future->cond_ready);
+            pthread_cond_destroy(&future->cond_finished);
             free(future);
         }
         else {
@@ -86,13 +87,13 @@ void *pthpool_future_get(struct _future *future, unsigned int seconds)
     int status;
     
     pthread_mutex_lock(&future->mutex_flag);
-    future->flag &= _FUTURE_READY;      // turn off the timeout bit set previously
-    while ((future->flag & _FUTURE_READY) == 0) {
+    future->flag &= ~_FUTURE_TIMEOUT;      // turn off the timeout bit set previously
+    while ((future->flag & _FUTURE_FINISHED) == 0) {
         if (seconds) {
             struct timespec expire_time;
             clock_gettime(_PTHPOOL_CLOCKID, &expire_time);
             expire_time.tv_sec += seconds;
-            status = pthread_cond_timedwait(&future->cond_ready, &future->mutex_flag, &expire_time);
+            status = pthread_cond_timedwait(&future->cond_finished, &future->mutex_flag, &expire_time);
             if (status == ETIMEDOUT) {
                 future->flag |= _FUTURE_TIMEOUT;
                 pthread_mutex_unlock(&future->mutex_flag);
@@ -100,7 +101,7 @@ void *pthpool_future_get(struct _future *future, unsigned int seconds)
             }
         }
         else {
-            pthread_cond_wait(&future->cond_ready, &future->mutex_flag);
+            pthread_cond_wait(&future->cond_finished, &future->mutex_flag);
         }
     }
     pthread_mutex_unlock(&future->mutex_flag);
@@ -108,12 +109,28 @@ void *pthpool_future_get(struct _future *future, unsigned int seconds)
     return future->result;
 }
 
-int pthpool_future_ready(struct _future *future)
+int pthpool_future_cancel(struct _future *future)
 {
     int status;
     
     pthread_mutex_lock(&future->mutex_flag);
-    status = future->flag & _FUTURE_READY;
+    if (future->flag & _FUTURE_FINISHED || future->flag & _FUTURE_RUNNING || future->flag & _FUTURE_DESTROYED) {
+        status = -1;
+    }
+    else {
+        future->flag |= _FUTURE_CANCELLED;
+        status = 0;
+    }
+    pthread_mutex_unlock(&future->mutex_flag);
+    return status;
+}
+
+int pthpool_future_finished(struct _future *future)
+{
+    int status;
+    
+    pthread_mutex_lock(&future->mutex_flag);
+    status = future->flag & _FUTURE_FINISHED;
     pthread_mutex_unlock(&future->mutex_flag);
     
     return status;
@@ -153,11 +170,11 @@ static void jobqueue_destroy(jobqueue_t *jobqueue)
         if (tmp->future->flag & _FUTURE_DESTROYED) {
             pthread_mutex_unlock(&tmp->future->mutex_flag);
             pthread_mutex_destroy(&tmp->future->mutex_flag);
-            pthread_cond_destroy(&tmp->future->cond_ready);
+            pthread_cond_destroy(&tmp->future->cond_finished);
             free(tmp->future);            
         }
         else {
-            tmp->future->flag |= _FUTURE_CANCELED;
+            tmp->future->flag |= _FUTURE_CANCELLED;
             pthread_mutex_unlock(&tmp->future->mutex_flag);
         }
         free(tmp);
@@ -206,25 +223,35 @@ static void *jobqueue_fetch(void *queue)
         pthread_mutex_unlock(&jobqueue->mutex_rwlock);
         
         if (task->func) {
+            pthread_mutex_lock(&task->future->mutex_flag);
+            if (task->future->flag & _FUTURE_CANCELLED) {
+                pthread_mutex_unlock(&task->future->mutex_flag);
+                free(task);
+                continue;
+            }
+            else {
+                task->future->flag |= _FUTURE_RUNNING;
+                pthread_mutex_unlock(&task->future->mutex_flag);
+            }
             ret_value = task->func(task->arg);
             pthread_mutex_lock(&task->future->mutex_flag);
             if (task->future->flag & _FUTURE_DESTROYED) {
                 pthread_mutex_unlock(&task->future->mutex_flag);
                 pthread_mutex_destroy(&task->future->mutex_flag);
-                pthread_cond_destroy(&task->future->cond_ready);
+                pthread_cond_destroy(&task->future->cond_finished);
                 free(task->future);
             }
             else {
-                task->future->flag |= _FUTURE_READY;
+                task->future->flag |= _FUTURE_FINISHED;
                 task->future->result = ret_value;
-                pthread_cond_broadcast(&task->future->cond_ready);
+                pthread_cond_broadcast(&task->future->cond_finished);
                 pthread_mutex_unlock(&task->future->mutex_flag);                 
             }
             free(task);
         }
         else {
             pthread_mutex_destroy(&task->future->mutex_flag);
-            pthread_cond_destroy(&task->future->cond_ready);
+            pthread_cond_destroy(&task->future->cond_finished);
             free(task->future);
             free(task);
             break;
