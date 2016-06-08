@@ -16,6 +16,7 @@ Below is a typical workflow when using Pthpool. Refer to the API section for mor
 4. Wait for arbitrary seconds to get the result of execution: `void *result = pthpool_future_get(future, seconds);`
 5. Destroy the future object once it's no longer used: `pthpool_future_destroy(future);`
 6. Wait for all pending tasks to complete and destroy the thread pool: `pthpool_join(pool);`
+7. Compile the source files with *pthpool.c* and option *-pthread*
 
 ## API
 
