@@ -46,7 +46,7 @@ Attempt to cancel the task execution. If the function is either running or finis
 </br></br>
 **int pthpool_future_destroy(pthpool_future_t future)**  
 
-Destroy the future object and free resources once it's no longer used. It's an error to refer to a destroyed future object.
+Destroy the future object and free resources once it's no longer used. It's an error to refer to a destroyed future object. Notice that destroying a future object does not prevent a pending task from being executed.
 </br></br>
 **int pthpool_future_finished(pthpool_future_t future)**  
 
