@@ -30,7 +30,7 @@ Schedules the function *func* to be executed as `func(arg)`. If successful, a fu
 </br></br>
 **int pthpool_join(pthpool_t pool)**  
 
-Wait for all pending tasks to complete execution before destroying the thread pool.
+Wait for all pending tasks to complete before destroying the thread pool.
 </br></br>
 **int pthpool_terminate(pthpool_t pool)**  
 
