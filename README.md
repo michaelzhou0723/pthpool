@@ -10,7 +10,7 @@ Pthpool is a lightweight, POSIX compliant thread pool implementation that aims t
 
 Below is a typical workflow when using Pthpool. Refer to the API section for more detailed documentation.
 
-1. Include the header file: `#include "pthpool.h"`
+1. Include the library header file: `#include "pthpool.h"`
 2. Create a thread pool with desired number of threads: `pthpool_t pool = pthpool_create(NUM_OF_THREADS);`
 3. Submit tasks to the thread pool: `pthpool_future_t future = pthpool_apply(pool, task, (void *)arg);`
 4. Wait for arbitrary seconds to get the result of execution: `void *result = pthpool_future_get(future, seconds);`
