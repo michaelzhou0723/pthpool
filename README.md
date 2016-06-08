@@ -36,12 +36,12 @@ Return the result when it becomes available. If *seconds* is non-zero and the re
 </br></br>
 **int pthpool_future_cancel(pthpool_future_t future)**  
 Attempt to cancel the task execution. If the function is either running or finished, cancellation fails and returns `-1`. If successful, `0` is returned.
-
+</br></br>
 **int pthpool_future_destroy(pthpool_future_t future)**  
 Destroy the future object and free resources once it's no longer used. It's an error to refer to a destroyed future object.
-
+</br></br>
 **int pthpool_future_finished(pthpool_future_t future)**  
 Return `1` if the task completes execution, `0` otherwise.
-
+</br></br>
 **int pthpool_future_timeout(pthpool_future_t future)**  
 Return `1` if the last `pthpool_future_get()` on *future* results in a timeout, `0` otherwise.
